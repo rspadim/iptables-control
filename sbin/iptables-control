@@ -73,12 +73,17 @@ panic(){
 	$IPTABLES --policy INPUT  DROP
 	$IPTABLES --policy OUTPUT DROP
 	$IPTABLES --policy FORWARD DROP
+	if [ "$SIP" = "YES" ]; then
+		$TC qdisc del dev $IF root # 2> /dev/null > /dev/null
+	fi
 }
 
 stop(){
 
 	#Flushing chains
-
+	if [ "$SIP" = "YES" ]; then
+		$TC qdisc del dev $IF root # 2> /dev/null > /dev/null
+	fi
 	$IPTABLES -F
 	$IPTABLES -X
 	$IPTABLES -t nat -F
@@ -90,13 +95,43 @@ stop(){
 	$IPTABLES --policy INPUT  ACCEPT
 	$IPTABLES --policy OUTPUT ACCEPT
 	$IPTABLES --policy FORWARD ACCEPT
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+
 }
 
 load_kmodules(){
 	for mod in $KMODULES; do
-        	$MODPROBE $mod
+		echo "Loading $mod"
+		$MODPROBE $mod
 	done
-
+	if [ "$SIP" = "YES" ]; then
+		for mod in $SIP_MODULES; do
+			echo "Loading $mod"
+			$MODPROBE $mod
+		done
+	fi
 }
 
 
@@ -154,7 +189,6 @@ start (){
         $IPTABLES -A BANNED -j LOG --log-level info -m limit --limit 1/minute --log-prefix "Banned host: "
         $IPTABLES -A BANNED -j DROP
 
-	
 	#Silent DROP for udp packets (more netbios request)
 	$IPTABLES -N SILENT
 	$IPTABLES -A SILENT -j DROP
@@ -188,10 +222,10 @@ start (){
 
 
 	# 10 new connections in 5 seconds
-	$IPTABLES -A INPUT -p tcp -i $IF -m conntrack --ctstate NEW -m recent --set
-	$IPTABLES -A INPUT -p tcp -i $IF -m conntrack --ctstate NEW -m recent --update --seconds 5 --hitcount 10 -j PDROP
-	$IPTABLES -A FORWARD -p tcp -i $IF -m conntrack --ctstate NEW -m recent --set
-	$IPTABLES -A FORWARD -p tcp -i $IF -m conntrack --ctstate NEW -m recent --update --seconds 5 --hitcount 10 
+	$IPTABLES -A INPUT -p tcp -i $IF ! --dport 53 -m conntrack --ctstate NEW -m recent --set
+	$IPTABLES -A INPUT -p tcp -i $IF ! --dport 53 -m conntrack --ctstate NEW -m recent --update --seconds 3 --hitcount 10 -j PDROP
+	$IPTABLES -A FORWARD -p tcp -i $IF ! --dport 53 -m conntrack --ctstate NEW -m recent --set
+	$IPTABLES -A FORWARD -p tcp -i $IF ! --dport 53 -m conntrack --ctstate NEW -m recent --update --seconds 3 --hitcount 10 
 
 
 
@@ -200,7 +234,6 @@ start (){
 
 	stamp_succ "[PASSED]"
 
-	
 	#Bad flags control
 	stamp_act "Bad flag control"
 #	$IPTABLES -A INPUT -i $IF  -p tcp --syn -j FDROP
@@ -218,13 +251,12 @@ start (){
 	stamp_act "Closing all connection for banned host"
 	for host in $BANNED_HOST; do
 		echo -e "Close all incoming traffics for $host"
-		$IPTABLES -A INPUT -i $IF  -s $host -j BANNED
+#		$IPTABLES -A INPUT -i $IF  -s $host -j BANNED
+		$IPTABLES -A INPUT -s $host -j BANNED
 	done
 	stamp_succ "[PASSED]"
-	
-	### Port Section
-	 
 
+	### Port Section
 	#Open ports for all
 	stamp_act "Open TCP ports for all"
 	for ports in $TCP_ALL_PORTS ; do
@@ -234,10 +266,17 @@ start (){
         stamp_succ "[PASSED]"	
 
 	#Open UDP prts for all
+	UDP_PORTS="$UDP_ALL_PORTS"
+	if [ "$SIP" = "YES" ]; then
+		if [ $SIP_PORT = 0 ]; then
+			SIP_PORT=5060
+		fi
+		UDP_PORTS="$UDP_ALL_PORTS $SIP_PORT"
+	fi
 	stamp_act "Open UDP ports for all"
-	for ports in $UDP_ALL_PORTS; do
+	for ports in $UDP_PORTS; do
 		echo -e "Open UDP $ports"
-        	$IPTABLES -A INPUT -i $IF   -p UDP --dport $ports -j ACCEPT
+		$IPTABLES -A INPUT -i $IF   -p UDP --dport $ports -j ACCEPT
 	done
         stamp_succ "[PASSED]"
 
@@ -252,7 +291,7 @@ start (){
 	stamp_succ "[PASSED]"
 
 	#Open udp ports for priviliged host
-        stamp_act "Open filter UDP ports"
+	stamp_act "Open filter UDP ports"
 	for ports in $UDP_PRIV_PORTS; do
 		source=`echo $ports | cut -d '@' -f1`
 		port=`echo $ports | cut -d '@' -f2`
@@ -260,6 +299,54 @@ start (){
 		$IPTABLES -A INPUT -i $IF -s $source   -p UDP --dport $port -j WATCH
 	done
 	stamp_succ "[PASSED]"
+
+
+	#SIP SHOULD GO BEFORE RELATED,ESTALISHED
+	
+	if [ $SIP = "YES" ]; then
+		stamp_act "Filter SIP WRONG INVITES"
+		$IPTABLES -I INPUT -p udp -m udp --dport $SIP_PORT -m string --string "REGISTER sip:" --algo bm -m recent --set --name VOIP --rsource 
+		$IPTABLES -I INPUT -p udp -m udp --dport $SIP_PORT -m string --string "REGISTER sip:" --algo bm -m recent --update --seconds 60 --hitcount 12 --rttl --name VOIP --rsource -j DROP 
+		$IPTABLES -I INPUT -p udp -m udp --dport $SIP_PORT -m string --string "INVITE sip:" --algo bm -m recent --set --name VOIPINV --rsource 
+		$IPTABLES -I INPUT -p udp -m udp --dport $SIP_PORT -m string --string "INVITE sip:" --algo bm -m recent --update --seconds 60 --hitcount 12 --rttl --name VOIPINV --rsource -j DROP 
+		$IPTABLES -I INPUT -p udp -m hashlimit --hashlimit 6/sec --hashlimit-mode srcip,dstport --hashlimit-name tunnel_limit -m udp --dport $SIP_PORT -j ACCEPT 
+		$IPTABLES -I INPUT -p udp -m udp --dport $SIP_PORT -j DROP 
+		stamp_succ "[PASSED]"
+		################################################################################################
+		# Add HTB root qdisc
+		stamp_act "SIP QOS, ADD HTB ROOT qdisc,classes,sqf,filters"
+		$TC  qdisc add dev $IF root handle 1: htb default 26 # 2> /dev/null > /dev/null
+		$IPTABLES -A FORWARD -t mangle -p udp --sport 1024:49151 -j TOS --set-tos Maximize-Throughput
+		$IPTABLES -A FORWARD -t mangle -p udp --dport 1024:49151 -j TOS --set-tos Maximize-Throughput
+		$IPTABLES -A FORWARD -t mangle -p tcp --sport 1:65535 -j TOS --set-tos Minimize-Delay
+		$IPTABLES -A FORWARD -t mangle -p tcp --dport 1:65535 -j TOS --set-tos Minimize-Delay
+		# Adiciona root qdisc
+		stamp_act "qdisc"
+		$TC qdisc add dev $IF root handle 1: htb default 50 # 2> /dev/null > /dev/null
+		$TC class add dev $IF parent 1: classid 1:1 htb rate ${RATEUP}kbit # 2> /dev/null > /dev/null
+		# Classes #
+		stamp_act "classes"
+		$TC class add dev $IF parent 1:1 classid 1:20 htb rate $[$RATEUP/4]kbit ceil ${RATEUP}kbit prio 0 # 2> /dev/null > /dev/null
+		# Sqf #
+		stamp_act "Sqf"
+		$TC qdisc add dev $IF parent 1:20 handle 20: sfq perturb 10 # 2> /dev/null > /dev/null
+		# Filtros #
+		stamp_act "filters"
+		$TC filter add dev $IF parent 1:0 prio 0 protocol ip handle 20 fw flowid 1:20 # 2> /dev/null > /dev/null
+		$TC filter add dev $IF parent 1:0 protocol ip prio 0 u32 match ip dst $LAN_ADDR classid 1:20 # 2> /dev/null > /dev/null
+		# Marca pacotes #
+		stamp_act "iptables-mark"
+		$IPTABLES -A FORWARD -t mangle
+		$IPTABLES -A PREROUTING -t mangle -d $LAN_ADDR -j MARK --set-mark 1
+		$IPTABLES -t nat -I POSTROUTING -s $LAN_ADDR -d 0/0 -o $IF -j MASQUERADE
+		$IPTABLES -A FORWARD -t mangle -p tcp --dport 1:65535 -j MARK --set-mark 23
+		$IPTABLES -A FORWARD -t mangle -p tcp --sport 1:65535 -j MARK --set-mark 23
+		$IPTABLES -A FORWARD -t mangle -p icmp -j MARK --set-mark 20
+		$IPTABLES -A FORWARD -t mangle -p udp -j MARK --set-mark 21
+		$IPTABLES -A FORWARD -t mangle -m mark --mark 0 -j MARK --set-mark 26
+		stamp_succ "[PASSED]"
+	fi
+
 
 
 	#Lets do some basic state-matching
@@ -279,7 +366,7 @@ start (){
 	$IPTABLES -A INPUT -p icmp --icmp-type 3 -j ACCEPT
 	$IPTABLES -A INPUT -p icmp --icmp-type 11 -j ACCEPT
 	$IPTABLES -A INPUT -p icmp --icmp-type 8 -m limit --limit 1/second -j ACCEPT
-	$IPTABLES -A ICMP   -p icmp -j ICDROP
+	$IPTABLES -A ICMP  -p icmp -j ICDROP
 	stamp_succ "[PASSED]"
 
 
@@ -292,8 +379,6 @@ start (){
 	for i in /proc/sys/net/ipv4/conf/*/accept_source_route; do
 		echo 0 > $i
 	done
-
-
 
 	stamp_act "Turn on incoming traffic"
 	$IPTABLES --policy INPUT ACCEPT 
@@ -313,30 +398,51 @@ start (){
 		$IPTABLES -A FORWARD -d $LAN_ADDR -j ACCEPT
 		$IPTABLES -A FORWARD -j DROP
 		$IPTABLES --policy FORWARD ACCEPT
+		
+		if [ "$SIP" = "YES" ]; then
+			if [ "$SIP_SERVER" != "" ]; then
+				# verificar se é if_lan ou if depois
+				$IPTABLES -A FORWARD -o $IF_LAN -p udp --dport $SIP_PORT -j ACCEPT
+				for tmp_ip in $SIP_SERVER; do
+					$IPTABLES -t nat -A POSTROUTING -o $IF_LAN -j SNAT --to-source $tmp_ip
+				done
+			fi
+		fi
 		stamp_succ "[PASSED]"
 	else
 		echo "0" > /proc/sys/net/ipv4/ip_forward
 	fi
 
 	stamp_act "Starting port forwarding rules"
-	masq_output="0"
 	for ports in $PRT_FW; do
-                port=`echo $ports | cut -d '@' -f1`
-                dest=`echo $ports | cut -d '@' -f2`
-                echo -e "Forward request on port $port to $dest"
-                $IPTABLES -t nat -A PREROUTING -i $IF -p tcp --dport $port -j DNAT --to $dest 
-                masq_output="1"
-        done
-        if [ "$masq_output" = "1" ]; then
-                $IPTABLES -t nat -A POSTROUTING -j MASQUERADE
-        fi
-        stamp_succ "[PASSED]"
+		port=`echo $ports | cut -d '@' -f1`
+		dest=`echo $ports | cut -d '@' -f2`
+		dest_ip=`echo $dest | cut -d ':' -f1`
+		echo -e "Forward request on port $port to $dest [ip: $dest_ip]"
+		$IPTABLES -t nat -A PREROUTING -i $IF -p tcp --dport $port -j DNAT --to $dest 
+		if [ "$dest_ip" != "" ]; then
+			$IPTABLES -t nat -A POSTROUTING -d $dest_ip -j MASQUERADE
+		else
+			$IPTABLES -t nat -A POSTROUTING -d $dest -j MASQUERADE
+		fi
+	done
+	stamp_succ "[PASSED]"
 
 }
 
 status (){
-	$IPTABLES -L	
-	$IPTABLES -t nat -L
+	stamp_act "IPTABLES Lists"
+	$IPTABLES -n -L
+	$IPTABLES -n -t nat -L
+	if [ "$SIP" = "YES" ]; then
+		stamp_act "QOS:"
+		stamp_act "[qdisc]"
+		$TC  -s qdisc show dev $IF
+		stamp_act "[class]"
+		$TC  -s class show dev $IF
+		stamp_act "[filter]"
+		$TC  -s filter show dev $IF
+	fi
 }
 
 
@@ -376,4 +482,3 @@ case  "$1" in
    	 echo "Usage: $0 {start|stop|status|restart|panic}"
    	 exit 1
 esac
-
