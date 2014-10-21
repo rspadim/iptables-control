@@ -1,0 +1,7 @@
+Coming soon....
+	*Support for DMZ network
+	*Support for multiple rulse on alias interface as eth0:1 eth0:2 ecc ecc
+	* Traffic shaping with CBQ
+	*Better english support :) (sorry!!!!)
+
+[EOF]

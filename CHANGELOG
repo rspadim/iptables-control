@@ -1,0 +1,33 @@
+Version 1.0
+	* Step-by-step interactive configurator script
+	* TCP/UDP ports configurator
+	* LAN settings for routing and masquerading
+	* ICMP filtering
+
+Version 1.0.1
+	* Fixed postrouting for trasparent proxy on remote machine
+	* Fixed some little bugs in install and configurator script
+
+Version 1.0.2
+	* Addedd "panic" function to turn off all traffic network if necessary
+	* Tuning for system logging (less log)
+	* Better trasparent proxyes function
+	* Code clean up
+
+Version 1.0.3
+	* Added "banned" host to block all incoming traffic for banned hosts
+	* Better installation and configuration script
+	* Better load modules function
+	* Code clean up
+
+Version 1.0.4
+  * Remove hard coded ip control. Now network traffic is controlled by only
+    interface parameters.
+  * Code clean up
+
+Version 1.0.5
+  *Added port forwarding support
+  
+Version 1.0.6
+  *Bug fixing. Now banned host chains rules work well
+[EOF]

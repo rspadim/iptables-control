@@ -1,0 +1,46 @@
+#!/bin/sh
+#$Id: iptables-control.conf.sample,v 1.4 2003/03/02 12:14:13 flaurita Exp $
+#Generate by genconf.sh
+
+#Setting path first
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+
+#List of modules that you wont load into kernel
+KMODULES="ip_tables ip_conntrack iptable_nat ipt_MASQUERADE ip_nat_irc ip_nat_ftp ip_conntrack_irc ip_conntrack_ftp ipt_state"
+
+#Sone variables for banner script
+PROGNAME="Iptables-Control"
+VERSION="1.0.4"
+CODER="StealthP"
+
+#Internet interface
+IF="ppp0"
+
+
+#Locate programs
+IPTABLES="/sbin/iptables"
+MODPROBE="/sbin/modprobe"
+
+#List of TCP port open for all
+TCP_ALL_PORTS="25 80"
+
+#List of UDP port open for all
+UDP_ALL_PORTS="53"
+
+#Port forwarding
+PRT_FW="22@192.168.1.10 21@192.168.1.10"
+
+#Priv host for TCP connection
+TCP_PRIV_PORTS="211.111.111.111@6667"
+UDP_PRIV_PORTS=""
+
+#Host Banned
+BANNED_HOST=""
+
+#Lan settings
+NAT="NO"
+IF_LAN=""
+LAN_ADDR=""
+HAVE_PROXY=""
+TRASPARENT_PROXY=""
+PROXY_PORT=""

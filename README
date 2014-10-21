@@ -1,0 +1,55 @@
+NAME:
+
+    Iptables-Control - iptables filter configutrator
+
+AUTHOR:
+    
+    'StealthP' Francesco <stealthp@stealthp.net>
+
+DESCRIPTION:
+
+    What is Iptables-Control?
+
+    Iptables-Control is a fast and easy iptables filter configurator
+
+    Some features:
+
+     *Step-by-step interactive configurator script
+     *TCP ports configurator
+     *UDP ports configurator
+     *LAN settings for routing and masquerading
+     *ICMP filtering
+    
+   Tested on Red Hat 7.1 7.2 7.3 7.3 with kernel 2.4.19
+
+FILES TREE:
+   
+   program: /sbin/iptables-control
+   config file: /etc/iptables-control.conf
+   Sample config : <package-dir>/sample-conf/iptables-control.conf.sample
+
+   If you want remake a new configuration just remake a installation or
+   go into <package-dir>/sbin/ and run genconf.sh as root
+
+LICENSE:
+
+    This software is released under the GPL.  Please
+    see the included LICENSE file.
+    
+    Copyright (C) 2002  'StealthP' Francesco
+    
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+    
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+    
+    Use this script at your own risk!

@@ -1,0 +1,7 @@
+#!/bin/sh
+#Generate by genconf.sh
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+KMODULES="ip_tables ip_conntrack iptable_nat ipt_MASQUERADE ip_nat_irc ip_nat_ftp ip_conntrack_irc ip_conntrack_ftp ipt_state"
+PROGNAME="Iptables-Control"
+VERSION="1.0.6"
+CODER="Francesco 'StealthP' http://devzone.stealthp.org"

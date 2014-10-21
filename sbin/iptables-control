@@ -1,0 +1,379 @@
+#!/bin/sh
+#***************************************************************************
+#                           iptables-control  -  description
+#                             -------------------
+#    begin                : mar ago 13 17:04:19 CEST 2002
+#    copyright            : (C) 2002 by StealthP
+#    email                : stealthp@stealthp.net
+# ***************************************************************************/
+
+#/***************************************************************************
+# *                                                                         *
+# *   This program is free software; you can redistribute it and/or modify  *
+# *   it under the terms of the GNU General Public License as published by  *
+# *   the Free Software Foundation; either version 2 of the License, or     *
+# *   (at your option) any later version.                                   *
+# *                                                                         *
+# ***************************************************************************/
+
+
+######################################
+# Fast and easy iptables configurator#
+#
+#$Id: iptables-control,v 1.5 2003/09/11 18:17:46 flaurita Exp $
+#
+######################################
+
+
+
+#Print function
+
+# red
+stamp_error(){
+	echo -e "\033[40m\033[1;31m$1\033[0m"
+}
+
+#yellow
+stamp_act(){
+        echo -e "\033[40m\033[1;33m$1\033[0m"
+}
+
+#green
+stamp_succ(){
+        echo -e "\033[40m\033[1;32m$1\033[0m"
+}
+
+DATE=`date +'%b %d %k:%M:%S'`;
+
+
+
+#check for root privileges
+
+if [ "$UID" != 0 ]; then
+	stamp_error "Become root first!"
+	exit 1
+fi
+
+#Check for configuration file
+if [ -x /etc/iptables-control.conf ]; then
+	. /etc/iptables-control.conf
+else
+	stamp_error "Configuration file not found!"
+	echo -e "Copy iptables-control.conf in /etc/ first!"
+	echo -e "then chmod +x iptables-control.conf"
+	exit 1
+fi	
+
+stamp_act "-------------------------------------------------"
+stamp_act "$DATE: $PROGNAME $VERSION ($CODER)"
+stamp_act "-------------------------------------------------"
+
+panic(){
+	#While starting firewall all traffic is blocked
+	$IPTABLES --policy INPUT  DROP
+	$IPTABLES --policy OUTPUT DROP
+	$IPTABLES --policy FORWARD DROP
+}
+
+stop(){
+
+	#Flushing chains
+
+	$IPTABLES -F
+	$IPTABLES -X
+	$IPTABLES -t nat -F
+	$IPTABLES -t nat -X
+	$IPTABLES -t filter -F
+	$IPTABLES -t filter -X
+	$IPTABLES -t mangle -F
+	$IPTABLES -t mangle -X
+	$IPTABLES --policy INPUT  ACCEPT
+	$IPTABLES --policy OUTPUT ACCEPT
+	$IPTABLES --policy FORWARD ACCEPT
+}
+
+load_kmodules(){
+	for mod in $KMODULES; do
+        	$MODPROBE $mod
+	done
+
+}
+
+
+start (){
+	if [ "$1" = "start" ]; then
+		stamp_act "Probing kernel modules"
+		load_kmodules
+		stamp_succ "[PASSED]"
+	fi
+	
+	
+	stamp_act "Turn off all traffic network"
+	#While starting firewall all traffic is blocked
+	$IPTABLES --policy INPUT  DROP
+	$IPTABLES --policy OUTPUT DROP
+	$IPTABLES --policy FORWARD DROP
+	stamp_succ "[PASSED]"
+
+
+
+	stamp_act "Creating chains"
+	#Chain for log spoofing
+	$IPTABLES -N SDROP
+	$IPTABLES -A SDROP -j LOG --log-level info --log-prefix "Spoofing Drop "
+	$IPTABLES -A SDROP -j DROP
+
+
+	#Chain for log of all unauthorized packets
+	$IPTABLES -N LDROP
+	$IPTABLES -A LDROP -j LOG --log-level info -m limit --limit 10/minute  --log-prefix "Packet Block "
+	$IPTABLES -A LDROP -j DROP
+
+	#Chain for log of all icmp blocked
+	$IPTABLES -N ICDROP
+	$IPTABLES -A ICDROP -j LOG --log-level info -m limit --limit 10/minute --log-prefix "ICMP Block "
+	$IPTABLES -A ICDROP -j DROP
+
+	#Chain for portscan logging
+	$IPTABLES -N PDROP
+	$IPTABLES -A PDROP -j LOG --log-level info -m limit --limit 10/minute --log-prefix "Port Scan "
+	$IPTABLES -A PDROP -j DROP
+
+	#Chain for for bad flag packets
+	$IPTABLES -N FDROP
+	$IPTABLES -A FDROP -j LOG --log-level info -m limit --limit 10/minute --log-prefix "Badflags "
+	$IPTABLES -A FDROP -j DROP
+
+	#Chain for watch authorized incoming packets
+	$IPTABLES -N WATCH
+	$IPTABLES -A WATCH -j LOG --log-level info -m limit --limit 1/minute --log-prefix "Authorized connection: "
+	$IPTABLES -A WATCH -j ACCEPT
+	
+	#Chain for log banned host
+        $IPTABLES -N BANNED
+        $IPTABLES -A BANNED -j LOG --log-level info -m limit --limit 1/minute --log-prefix "Banned host: "
+        $IPTABLES -A BANNED -j DROP
+
+	
+	#Silent DROP for udp packets (more netbios request)
+	$IPTABLES -N SILENT
+	$IPTABLES -A SILENT -j DROP
+	stamp_succ "[PASSED]"
+
+	#Anti spoofing
+	stamp_act "Enable anti spoofing"
+	$IPTABLES -A INPUT -i $IF -s 127.0.0.0/24  -j SDROP
+	if [ -e /proc/sys/net/ipv4/conf/all/rp_filter ] ; then
+		for i in /proc/sys/net/ipv4/conf/*/rp_filter; do
+			echo 1 > $i
+		done
+	fi
+	stamp_succ "[PASSED]"
+
+
+
+
+
+
+
+
+	#anti portscan
+	stamp_act "Portscan protection"
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags ALL FIN,URG,PSH -m limit --limit 3/m --limit-burst 5 -j PDROP
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags SYN,RST SYN,RST -m limit --limit 3/m --limit-burst 5 -j PDROP
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags SYN,FIN SYN,FIN -m limit --limit 3/m --limit-burst 5 -j PDROP 
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags ALL FIN -m limit --limit 3/m --limit-burst 5 -j PDROP
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags ALL ALL -m limit --limit 3/m --limit-burst 5 -j PDROP
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags ALL NONE -m limit --limit 3/m --limit-burst 5 -j PDROP
+
+
+	# 10 new connections in 5 seconds
+	$IPTABLES -A INPUT -p tcp -i $IF -m conntrack --ctstate NEW -m recent --set
+	$IPTABLES -A INPUT -p tcp -i $IF -m conntrack --ctstate NEW -m recent --update --seconds 5 --hitcount 10 -j PDROP
+	$IPTABLES -A FORWARD -p tcp -i $IF -m conntrack --ctstate NEW -m recent --set
+	$IPTABLES -A FORWARD -p tcp -i $IF -m conntrack --ctstate NEW -m recent --update --seconds 5 --hitcount 10 
+
+
+
+
+
+
+	stamp_succ "[PASSED]"
+
+	
+	#Bad flags control
+	stamp_act "Bad flag control"
+#	$IPTABLES -A INPUT -i $IF  -p tcp --syn -j FDROP
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags ALL FIN,URG,PSH -j FDROP
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags ALL ALL -j FDROP
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j FDROP
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags ALL NONE -j FDROP
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags SYN,RST SYN,RST -j FDROP
+	$IPTABLES -A INPUT -i $IF  -p tcp --tcp-flags SYN,FIN SYN,FIN -j FDROP
+	stamp_succ "[PASSED]"
+
+
+	#Banned hosts#
+
+	stamp_act "Closing all connection for banned host"
+	for host in $BANNED_HOST; do
+		echo -e "Close all incoming traffics for $host"
+		$IPTABLES -A INPUT -i $IF  -s $host -j BANNED
+	done
+	stamp_succ "[PASSED]"
+	
+	### Port Section
+	 
+
+	#Open ports for all
+	stamp_act "Open TCP ports for all"
+	for ports in $TCP_ALL_PORTS ; do
+		echo -e "Open TCP $ports"
+		$IPTABLES -A INPUT -i $IF   -p TCP --dport $ports -j ACCEPT
+	done
+        stamp_succ "[PASSED]"	
+
+	#Open UDP prts for all
+	stamp_act "Open UDP ports for all"
+	for ports in $UDP_ALL_PORTS; do
+		echo -e "Open UDP $ports"
+        	$IPTABLES -A INPUT -i $IF   -p UDP --dport $ports -j ACCEPT
+	done
+        stamp_succ "[PASSED]"
+
+	#Open tcp ports for priviliged host
+	stamp_act "Open filter TCP ports"
+	for ports in $TCP_PRIV_PORTS; do
+		source=`echo $ports | cut -d '@' -f1`
+		port=`echo $ports | cut -d '@' -f2`
+		echo -e "Open TCP $port for $source"
+		$IPTABLES -A INPUT -i $IF -s $source   -p TCP --dport $port -j WATCH
+	done
+	stamp_succ "[PASSED]"
+
+	#Open udp ports for priviliged host
+        stamp_act "Open filter UDP ports"
+	for ports in $UDP_PRIV_PORTS; do
+		source=`echo $ports | cut -d '@' -f1`
+		port=`echo $ports | cut -d '@' -f2`
+                echo -e "Open UDP $port for $source"
+		$IPTABLES -A INPUT -i $IF -s $source   -p UDP --dport $port -j WATCH
+	done
+	stamp_succ "[PASSED]"
+
+
+	#Lets do some basic state-matching
+	#This allows us to accept related and established connections, so
+	#client-side things like ftp work properly, for example.
+#	$IPTABLES -A INPUT -i $IF  -m state --state RELATED,ESTABLISHED -j ACCEPT
+	$IPTABLES -A INPUT -i $IF  -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+
+	### ICMP SECTION ##
+
+	stamp_act "Filter ICMP"
+	$IPTABLES --new ICMP
+
+	$IPTABLES -A INPUT -i $IF  -p icmp -j ICMP
+	$IPTABLES -A INPUT -p icmp --icmp-type 0 -j ACCEPT
+	$IPTABLES -A INPUT -p icmp --icmp-type 3 -j ACCEPT
+	$IPTABLES -A INPUT -p icmp --icmp-type 11 -j ACCEPT
+	$IPTABLES -A INPUT -p icmp --icmp-type 8 -m limit --limit 1/second -j ACCEPT
+	$IPTABLES -A ICMP   -p icmp -j ICDROP
+	stamp_succ "[PASSED]"
+
+
+	#Open UDP traffic on only unprivilage ports
+	$IPTABLES -A INPUT -i $IF  -p UDP --dport 1024:65535 -j ACCEPT
+	$IPTABLES -A INPUT -i $IF  -p TCP -j LDROP
+	$IPTABLES -A INPUT -i $IF  -p UDP -j SILENT
+
+	# Disable Source Routed Packets
+	for i in /proc/sys/net/ipv4/conf/*/accept_source_route; do
+		echo 0 > $i
+	done
+
+
+
+	stamp_act "Turn on incoming traffic"
+	$IPTABLES --policy INPUT ACCEPT 
+	stamp_succ "[PASSED]"
+
+	stamp_act "Turn on outgoing traffic"
+	$IPTABLES --policy OUTPUT ACCEPT
+	stamp_succ "[PASSED]"
+
+	if [ $NAT = "YES" ]; then
+		stamp_act "Starting nat"
+		$IPTABLES -t nat -F
+		echo "1" > /proc/sys/net/ipv4/ip_forward
+		LOCAL_ADDR=`ifconfig $IF_LAN | grep "inet addr:" | cut -f 2 -d ":" | cut -f 1 -d " "`
+		$IPTABLES -t nat -A POSTROUTING ! -d $LAN_ADDR -j MASQUERADE
+		$IPTABLES -A FORWARD -s $LAN_ADDR -j ACCEPT
+		$IPTABLES -A FORWARD -d $LAN_ADDR -j ACCEPT
+		$IPTABLES -A FORWARD -j DROP
+		$IPTABLES --policy FORWARD ACCEPT
+		stamp_succ "[PASSED]"
+	else
+		echo "0" > /proc/sys/net/ipv4/ip_forward
+	fi
+
+	stamp_act "Starting port forwarding rules"
+	masq_output="0"
+	for ports in $PRT_FW; do
+                port=`echo $ports | cut -d '@' -f1`
+                dest=`echo $ports | cut -d '@' -f2`
+                echo -e "Forward request on port $port to $dest"
+                $IPTABLES -t nat -A PREROUTING -i $IF -p tcp --dport $port -j DNAT --to $dest 
+                masq_output="1"
+        done
+        if [ "$masq_output" = "1" ]; then
+                $IPTABLES -t nat -A POSTROUTING -j MASQUERADE
+        fi
+        stamp_succ "[PASSED]"
+
+}
+
+status (){
+	$IPTABLES -L	
+	$IPTABLES -t nat -L
+}
+
+
+case  "$1" in
+	start)
+	 stamp_act "Starting firewall"
+	 stop
+	 start start
+	 stamp_succ "--------------------------------"
+	 stamp_succ "Firewall active!"
+	 stamp_succ "--------------------------------"
+	 ;;
+	stop)
+  	 stamp_act "Stopping firewall"
+	 stop
+	 stamp_error "Firewall disabled!"
+	 ;;
+	restart)
+	 stamp_act "Restarting firewall"
+	 stop
+	 start
+	 stamp_succ "--------------------------------"
+	 stamp_succ "Firewall active!"
+	 stamp_succ "--------------------------------"
+	  ;;
+	status)
+	 stamp_act "Display chains rules"
+	 status
+	 ;;
+	panic)
+	 panic
+	 stamp_error "-------------------------------------------------------"
+	 stamp_error "!PANIC MODE ACTIVE! ALL NETWORKS TRAFFICS ARE DISABLED!"
+	 stamp_error "-------------------------------------------------------"
+	 ;;
+	 *)
+   	 echo "Usage: $0 {start|stop|status|restart|panic}"
+   	 exit 1
+esac
+
